@@ -1,0 +1,11 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Swagger • Flash Sale</title><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css"><style>body{margin:0;background:#fafafa}.guide{padding:18px 30px;background:#12253e;color:white;font:15px system-ui}.guide a{color:#74e7be}#notice{color:#ffe094}</style></head><body>
+<div class="guide"><b>Thứ tự: Login → Join → Admin draw → Ticket → Buy → Stats</b><p>Admin key lấy từ terminal, nhập qua nút Authorize. Session và ticket tự điền sau khi gọi API thành công. <a href="/">Giao diện khách hàng</a></p><div id="notice">Đang tải Swagger UI từ Internet… Nếu không tải được, kiểm tra kết nối tới unpkg.com.</div></div><div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script><script>
+let currentTicket='';
+if(typeof SwaggerUIBundle!=='undefined'){
+ document.getElementById('notice').textContent='Chọn API → Try it out → Execute. Không gửi 1.000 request bằng tay; dùng test.bat để kiểm tra đồng thời.';
+ window.ui=SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',validatorUrl:null,deepLinking:true,docExpansion:'list',supportedSubmitMethods:['get','post'],
+ requestInterceptor:req=>{if(req.url.endsWith('/api/buy')&&req.body){try{const b=JSON.parse(req.body);if(b.ticket==='AUTO_TICKET'){b.ticket=currentTicket;req.body=JSON.stringify(b)}}catch(e){}}return req},
+ responseInterceptor:res=>{try{const b=typeof res.body==='string'?JSON.parse(res.body):res.body;if(res.url.endsWith('/api/demo/login')&&b.session){currentTicket='';window.ui.preauthorizeApiKey('sessionAuth',b.session)}if(res.url.endsWith('/api/ticket')){currentTicket=b.ticket||''}}catch(e){}return res}});
+}
+</script></body></html>

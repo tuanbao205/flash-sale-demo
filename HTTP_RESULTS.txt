@@ -1,0 +1,22 @@
+Swagger HTML and OpenAPI endpoints: PASS
+{'registered': 100, 'selected': 100}
+{
+  "stats": {
+    "stock": 0,
+    "orders": 100,
+    "invariant_ok": true,
+    "registered": 100,
+    "selected": 100,
+    "drawn": true,
+    "metrics": {}
+  },
+  "retry": {
+    "status": "ORDER_CREATED",
+    "order_id": "22399adc17582445a5707b8719aafd5f",
+    "replayed": true
+  },
+  "invalid_ticket": {
+    "error": "INVALID_TICKET"
+  }
+}
+HTTP demo PASS: 100 orders, stock 0, replay safe, forged ticket rejected.
