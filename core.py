@@ -1,5 +1,6 @@
 import sqlite3, threading, secrets, time, json, base64, hmac, hashlib
 from collections import defaultdict, deque
+from contextlib import closing
 
 class Rejected(Exception):
     def __init__(self, code, status=403):
@@ -17,7 +18,7 @@ class Sale:
         self.selected = set()
         self.drawn = False
         self.metrics = defaultdict(int)
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             db.executescript('''PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS stock(id INTEGER PRIMARY KEY, remaining INTEGER NOT NULL CHECK(remaining >= 0));
 INSERT OR IGNORE INTO stock VALUES(1,100);
@@ -29,7 +30,9 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
 
     def session(self, user, device):
         # DEMO identity only: production requires authenticated, verified account.
-        if not user or not device or len(user)>80 or len(device)>80:
+        if (not isinstance(user, str) or not isinstance(device, str)
+                or not user.strip() or not device.strip()
+                or len(user)>80 or len(device)>80):
             raise Rejected('INVALID_IDENTITY',400)
         token = secrets.token_urlsafe(32)
         with self.lock:
@@ -73,9 +76,11 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
         with self.lock:
             if self.drawn:
                 raise Rejected('ALREADY_DRAWN',409)
+            with closing(self.connect()) as db:
+                remaining=db.execute('SELECT remaining FROM stock WHERE id=1').fetchone()[0]
             people=list(self.waiting)
             secrets.SystemRandom().shuffle(people)
-            self.selected=set(people[:100])
+            self.selected=set(people[:remaining])
             self.drawn=True
             return {'registered':len(people),'selected':len(self.selected)}
 
@@ -91,6 +96,8 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
         return {'status':'SELECTED','ticket':payload+'.'+sig}
 
     def verify(self, ticket, user):
+        if not isinstance(ticket, str):
+            raise Rejected('INVALID_TICKET')
         try:
             payload,sig=ticket.split('.')
             expected=hmac.new(self.secret,payload.encode(),hashlib.sha256).hexdigest()
@@ -109,7 +116,7 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
         if not request_key or len(request_key)>120:
             raise Rejected('INVALID_IDEMPOTENCY_KEY',400)
         # Retry existing result before rate limiting; final transaction also checks again.
-        with self.connect() as db:
+        with closing(self.connect()) as db:
             existing=db.execute('SELECT id,request_key FROM orders WHERE user_id=?',(user,)).fetchone()
             collision=db.execute('SELECT user_id FROM orders WHERE request_key=?',(request_key,)).fetchone()
         if collision and collision[0]!=user:
@@ -121,8 +128,9 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
         self.limit(('buy-ip',ip),200)
         if not self.writer.acquire(timeout=1):
             raise Rejected('BUSY_RETRY',503)
-        db=self.connect()
+        db=None
         try:
+            db=self.connect()
             db.execute('BEGIN IMMEDIATE')
             existing=db.execute('SELECT id FROM orders WHERE user_id=?',(user,)).fetchone()
             if existing:
@@ -142,12 +150,15 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
             db.rollback()
             raise
         finally:
-            db.close()
+            if db is not None:
+                db.close()
             self.writer.release()
 
     def stats(self):
-        with self.connect() as db:
+        with closing(self.connect()) as db:
+            db.execute('BEGIN')
             stock=db.execute('SELECT remaining FROM stock WHERE id=1').fetchone()[0]
             orders=db.execute('SELECT count(*) FROM orders').fetchone()[0]
+            db.commit()
         with self.lock:
             return {'stock':stock,'orders':orders,'invariant_ok':stock+orders==100,'registered':len(self.waiting),'selected':len(self.selected),'drawn':self.drawn,'metrics':dict(self.metrics)}

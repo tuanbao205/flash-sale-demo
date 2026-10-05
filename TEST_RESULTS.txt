@@ -1,12 +1,14 @@
 test_1000_requests_database_last_barrier (test_sale.Tests.test_1000_requests_database_last_barrier) ... ok
 test_bot_and_forged_ticket (test_sale.Tests.test_bot_and_forged_ticket) ... ok
 test_concurrent_retries (test_sale.Tests.test_concurrent_retries) ... ok
+test_draw_respects_remaining_stock_after_restart (test_sale.Tests.test_draw_respects_remaining_stock_after_restart) ... ok
 test_random_queue_and_duplicate_join (test_sale.Tests.test_random_queue_and_duplicate_join) ... ok
+test_rejects_non_string_identity_and_ticket (test_sale.Tests.test_rejects_non_string_identity_and_ticket) ... ok
 test_restart_and_key_conflict (test_sale.Tests.test_restart_and_key_conflict) ... ok
 test_rollback_when_insert_fails (test_sale.Tests.test_rollback_when_insert_fails) ... ok
 
 ----------------------------------------------------------------------
-Ran 6 tests in 0.518s
+Ran 8 tests in 2.347s
 
 OK
 
