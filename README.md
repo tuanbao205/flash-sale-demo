@@ -1,4 +1,4 @@
-# Bản mới: có Swagger UI
+
 
 Chạy `python server.py`, mở **http://localhost:8080/docs**. Swagger UI tải JS/CSS từ unpkg.com nên cần Internet; backend vẫn chỉ dùng thư viện chuẩn Python.
 
