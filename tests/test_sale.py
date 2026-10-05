@@ -1,6 +1,7 @@
 import sys, tempfile, unittest
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from core import Sale, Rejected
 class Tests(unittest.TestCase):
@@ -56,7 +57,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(e.exception.status,429)
     def test_rollback_when_insert_fails(self):
         s=self.participant(1);self.sale.draw();t=self.sale.ticket(s)['ticket']
-        with self.sale.connect() as db:
+        with closing(self.sale.connect()) as db:
             db.execute("CREATE TRIGGER fail BEFORE INSERT ON orders BEGIN SELECT RAISE(ABORT,'injected failure'); END")
         with self.assertRaises(Exception):self.sale.buy(s,t,'k','ip')
         self.assertEqual(self.sale.stats()['stock'],100)
@@ -68,4 +69,21 @@ class Tests(unittest.TestCase):
         restarted=Sale(self.sale.path)
         self.assertEqual(restarted.stats()['orders'],1)
         self.assertEqual(restarted.stats()['stock'],99)
+    def test_draw_respects_remaining_stock_after_restart(self):
+        first=self.participant(1);self.sale.draw()
+        self.sale.buy(first,self.sale.ticket(first)['ticket'],'first-order','ip1')
+        restarted=Sale(self.sale.path)
+        sessions=[]
+        for i in range(2,102):
+            token=restarted.session(f'u{i}',f'd{i}')
+            restarted.join(token,f'ip{i}')
+            sessions.append(token)
+        self.assertEqual(restarted.draw(),{'registered':100,'selected':99})
+        self.assertEqual(sum(restarted.ticket(s)['status']=='SELECTED' for s in sessions),99)
+    def test_rejects_non_string_identity_and_ticket(self):
+        with self.assertRaises(Rejected) as e:self.sale.session(['user'],'device')
+        self.assertEqual(e.exception.code,'INVALID_IDENTITY')
+        token=self.participant(1);self.sale.draw()
+        with self.assertRaises(Rejected) as e:self.sale.buy(token,None,'key','ip1')
+        self.assertEqual(e.exception.code,'INVALID_TICKET')
 if __name__=='__main__':unittest.main(verbosity=2)

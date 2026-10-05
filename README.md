@@ -9,7 +9,7 @@ Mỗi API: mở mục → **Try it out** → **Execute** → xem **Response body
 1. **Login**: giữ user=bao, device=device-bao → Execute. Session tự điền vào Authorize.
 2. **Join** → Execute. WAITING nghĩa là đang chờ admin chọn người mua.
 3. Bấm **Authorize** ở đầu trang → nhập **adminAuth** bằng Admin key in trong terminal → Authorize → Close. Mục sessionAuth đã được tự điền từ login.
-4. **Admin draw** → Execute. Với một người đăng ký, selected=1.
+4. **Admin draw** → Execute. Hệ thống chọn tối đa số hàng còn lại; với một người đăng ký khi kho còn hàng, selected=1.
 5. **Ticket** → Execute. SELECTED nghĩa là được mua. Vé tự lưu trong Swagger.
 6. **Buy**: giữ ticket=AUTO_TICKET, header Idempotency-Key=buy-bao-001 → Execute. Nhận ORDER_CREATED và order_id.
 7. **Stats** → Execute. Kết quả stock=99, orders=1, invariant_ok=true nếu ban đầu là demo mới.
@@ -34,12 +34,12 @@ Demo bài test tuyển dụng: tránh overselling, mua trùng; chống spam và 
 ## 1. Chạy trên Windows
 
 1. Kiểm tra `python --version` (nếu máy dùng `py`, thay `python` bằng `py`).
-3. Chạy `python server.py` hoặc mở `run.bat`.
-4. Mở http://localhost:8080. Giữ terminal đang chạy.
-5. Đăng nhập demo → Vào hàng chờ. Đổi tên tài khoản và thiết bị để đăng ký thêm người.
-6. Copy Admin key từ terminal vào ô quản trị → Đóng đăng ký & bốc ngẫu nhiên.
-7. Đăng nhập lại tài khoản đã đăng ký → Kiểm tra kết quả → Mua ngay.
-8. Bấm Mua ngay nhiều lần: nhận lại cùng mã đơn, kho chỉ giảm một lần.
+2. Chạy `python server.py` hoặc mở `run.bat`.
+3. Mở http://localhost:8080. Giữ terminal đang chạy.
+4. Đăng nhập demo → Vào hàng chờ. Đổi tên tài khoản và thiết bị để đăng ký thêm người.
+5. Copy Admin key từ terminal vào ô quản trị → Đóng đăng ký & bốc ngẫu nhiên.
+6. Đăng nhập lại tài khoản đã đăng ký → Kiểm tra kết quả → Mua ngay.
+7. Bấm Mua ngay nhiều lần: nhận lại cùng mã đơn, kho chỉ giảm một lần.
 
 Khóa admin sinh ngẫu nhiên mỗi lần chạy; không phải mật khẩu tài khoản thật. Server chỉ lắng nghe localhost.
 
@@ -54,6 +54,7 @@ Chạy `python -m unittest discover -s tests -v` hoặc mở `test.bat`.
 - Token giả, sửa chữ ký, dùng token người khác bị từ chối.
 - Cố ý làm INSERT thất bại: trừ kho được rollback, kho vẫn 100.
 - Khởi tạo lại service giữ đơn và kho; idempotency key trùng giữa hai người bị từ chối.
+- Restart với kho còn 99: bốc đúng tối đa 99 suất; identity/ticket sai kiểu dữ liệu bị từ chối.
 
 Test 1.000 yêu cầu **cố ý cho lớp admission cấp quá 100 vé**, để chứng minh database vẫn ngăn overselling độc lập với hàng chờ. Đây là bài test service có database thật, không phải 1.000 HTTP request cùng một thời điểm; không phải benchmark 100.000 người. `TEST_RESULTS.txt` là kết quả thực thi đính kèm.
 
@@ -71,7 +72,7 @@ Script đăng ký 100 tài khoản qua HTTP, bốc suất, gửi 100 yêu cầu 
 
 1. `/api/demo/login`: cấp session demo; user/device là dữ liệu giả lập.
 2. `/api/join`: xác minh session, rate limit theo IP, giới hạn hai tài khoản trên thiết bị, chống đăng ký trùng.
-3. `/api/admin/draw`: admin đóng đăng ký; dùng bộ sinh ngẫu nhiên hệ thống xáo danh sách, chọn tối đa 100 người.
+3. `/api/admin/draw`: admin đóng đăng ký; dùng bộ sinh ngẫu nhiên hệ thống xáo danh sách, chọn tối đa số hàng còn lại trong kho.
 4. `/api/ticket`: trả token HMAC do server ký, chứa user/event/expiry; chỉ người được chọn có vé mua, TTL 10 phút.
 5. `/api/buy`: kiểm tra session + chữ ký + người sở hữu + expiry + quyền được chọn; kiểm tra Idempotency-Key; giới hạn user/device/IP; giới hạn số transaction đồng thời.
 6. Database thực hiện `BEGIN IMMEDIATE`; kiểm tra đơn tồn tại và key trùng; trừ kho có điều kiện; tạo đơn; COMMIT. Lỗi thì ROLLBACK toàn bộ.
@@ -116,7 +117,7 @@ Thanh toán thực tế cần trạng thái PENDING_PAYMENT/PAID/EXPIRED, thời
 
 ## 7. Giới hạn vận hành
 
-Orders và stock lưu bền trong SQLite. Session, hàng chờ, selection, rate limit nằm trong RAM một process, mất khi restart; các token cũ hết hiệu lực vì secret đổi. Khởi động lại không reset kho. Nhiều instance cần lưu trạng thái dùng chung. Demo không có cleanup hàng chờ/session, chính sách dữ liệu hoặc bảo vệ trước traffic lớn. Stats không phải snapshot transaction nhất quán khi đang ghi; dùng kiểm tra sau khi bài test kết thúc. Không để demo này ra Internet.
+Orders và stock lưu bền trong SQLite. Session, hàng chờ, selection, rate limit nằm trong RAM một process, mất khi restart; các token cũ hết hiệu lực vì secret đổi. Khởi động lại không reset kho. Nhiều instance cần lưu trạng thái dùng chung. Demo không có cleanup hàng chờ/session, chính sách dữ liệu hoặc bảo vệ trước traffic lớn. Stats đọc tồn kho và số đơn trong cùng một snapshot SQLite; trạng thái hàng chờ vẫn chỉ thuộc process hiện tại. Không để demo này ra Internet.
 
 ## 8. Giải thích khi trình bày
 
