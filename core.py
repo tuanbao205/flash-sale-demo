@@ -162,3 +162,5 @@ CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNI
             db.commit()
         with self.lock:
             return {'stock':stock,'orders':orders,'invariant_ok':stock+orders==100,'registered':len(self.waiting),'selected':len(self.selected),'drawn':self.drawn,'metrics':dict(self.metrics)}
+
+
