@@ -1,124 +1,130 @@
+# Flash Sale Demo — chống bán vượt kho
 
+## Mục tiêu
 
-Chạy `python server.py`, mở **http://localhost:8080/docs**. Swagger UI tải JS/CSS từ unpkg.com nên cần Internet; backend vẫn chỉ dùng thư viện chuẩn Python.
+Đây là demo cục bộ cho bài toán flash sale có **100 sản phẩm**. Mục tiêu là minh họa cách xử lý nhiều yêu cầu mua đồng thời mà vẫn:
 
-## Thử dễ hiểu bằng Swagger
+- Không bán vượt số lượng tồn kho.
+- Không tạo nhiều đơn cho cùng một tài khoản khi người dùng bấm mua hoặc retry.
+- Cho người dùng đăng ký trước, sau đó bốc ngẫu nhiên người được quyền mua thay vì ưu tiên người click nhanh.
+- Kiểm tra kết quả bằng Swagger UI và bộ test chạy đồng thời.
 
-Mỗi API: mở mục → **Try it out** → **Execute** → xem **Response body**.
+> Đây là ứng dụng demo để trình bày luồng xử lý và các lớp bảo vệ ở backend, không phải hệ thống bán hàng production. Tài khoản/thiết bị là dữ liệu giả lập; chưa có đăng nhập thật, thanh toán, CAPTCHA hay chống bot hoàn chỉnh.
 
-1. **Login**: giữ user=bao, device=device-bao → Execute. Session tự điền vào Authorize.
-2. **Join** → Execute. WAITING nghĩa là đang chờ admin chọn người mua.
-3. Bấm **Authorize** ở đầu trang → nhập **adminAuth** bằng Admin key in trong terminal → Authorize → Close. Mục sessionAuth đã được tự điền từ login.
-4. **Admin draw** → Execute. Hệ thống chọn tối đa số hàng còn lại; với một người đăng ký khi kho còn hàng, selected=1.
-5. **Ticket** → Execute. SELECTED nghĩa là được mua. Vé tự lưu trong Swagger.
-6. **Buy**: giữ ticket=AUTO_TICKET, header Idempotency-Key=buy-bao-001 → Execute. Nhận ORDER_CREATED và order_id.
-7. **Stats** → Execute. Kết quả stock=99, orders=1, invariant_ok=true nếu ban đầu là demo mới.
-8. Gọi **Buy** lại và gọi **Stats** lại: vẫn 99 sản phẩm, một đơn. Đây là chống double click/retry.
+## Chạy demo trên Windows
 
-Để thử tài khoản khác, đăng ký họ **trước khi Admin draw**. Khi đổi user cần Login lại, lấy Ticket lại và đổi Idempotency-Key. Bốc suất chỉ chạy một lần. Muốn mở đợt mới: dừng server rồi chạy lại; kho vẫn giữ. Muốn reset về 100: dừng server và xóa sale.db, sale.db-wal, sale.db-shm nếu có (chỉ dữ liệu demo).
+Yêu cầu Python **3.9 trở lên**. Project chỉ dùng thư viện chuẩn Python, không cần cài package bằng pip.
 
-## Giải thích test tự động
+1. Mở terminal tại thư mục project.
+2. Chạy `run.bat` hoặc:
 
-Swagger kiểm tra API từng bước. `test.bat` kiểm tra nhiều người mua cùng lúc: giả lập 1.000 yêu cầu bằng 100 worker. Database phải cho đúng 100 đơn, 900 SOLD_OUT, kho 0. Không có nghĩa là 1.000 người được chọn trong hàng chờ thật: test cố ý vượt qua giới hạn admission để kiểm tra database là lớp bảo vệ cuối.
+   ```powershell
+   python server.py
+   ```
 
-Lỗi INVALID_TICKET trong giao diện cũ thường do chưa Admin draw và chưa lấy Ticket, hoặc dùng vé không còn hợp lệ sau khi restart. Bản mới hiển thị hướng dẫn khi chưa có vé.
+3. Giữ cửa sổ terminal đang chạy. Mở:
+   - **http://localhost:8080** — giao diện demo.
+   - **http://localhost:8080/docs** — Swagger UI.
+4. Lấy **Admin key** được in trong terminal khi server khởi động.
 
-Tài liệu triển khai và giới hạn của demo ở bên dưới.
+Server chỉ lắng nghe trên `127.0.0.1`, phù hợp để demo trên máy cá nhân.
 
----
+## Kịch bản trình bày đề xuất
 
-# Demo Flash Sale — 100 sản phẩm
+Nên dùng giao diện tại **http://localhost:8080** để trình bày luồng chính. Swagger UI phù hợp khi muốn xem request, response và mã lỗi chi tiết.
 
-Demo bài test tuyển dụng: tránh overselling, mua trùng; chống spam và bốc ngẫu nhiên suất mua. Python 3.10+; chỉ dùng thư viện chuẩn, không cần pip, Docker hay Redis. Giao diện tiếng Việt.
+1. **Đăng ký nhiều người trước khi bốc suất.** Nhập một user/device, bấm **Đăng nhập demo** rồi **Vào hàng chờ**. Đổi user (và device nếu muốn) để tạo thêm người tham gia.
+2. **Đóng đăng ký và bốc suất.** Nhập Admin key lấy từ terminal, bấm **Đóng đăng ký & bốc ngẫu nhiên**. Với 100 sản phẩm, hệ thống chọn tối đa 100 người trong danh sách đã đăng ký. Bước này chỉ chạy một lần cho mỗi lần khởi động server.
+3. **Kiểm tra một tài khoản.** Đăng nhập lại bằng user đã đăng ký, bấm **Kiểm tra kết quả**. Người được chọn nhận vé mua; người không được chọn không thể tạo đơn.
+4. **Mua hàng.** Người có vé bấm **Mua ngay**. Response thành công có `ORDER_CREATED` và `order_id`.
+5. **Chứng minh chống mua trùng.** Bấm **Mua ngay** lại với cùng tài khoản. Hệ thống trả về đơn đã tạo thay vì tạo đơn mới hoặc trừ kho thêm lần nữa.
+6. **Kiểm tra số liệu.** `stock` là tồn kho, `orders` là số đơn và `invariant_ok` cho biết bất biến kho có còn đúng không.
 
-## 1. Chạy trên Windows
+### Trình diễn bằng Swagger UI
 
-1. Kiểm tra `python --version` (nếu máy dùng `py`, thay `python` bằng `py`).
-2. Chạy `python server.py` hoặc mở `run.bat`.
-3. Mở http://localhost:8080. Giữ terminal đang chạy.
-4. Đăng nhập demo → Vào hàng chờ. Đổi tên tài khoản và thiết bị để đăng ký thêm người.
-5. Copy Admin key từ terminal vào ô quản trị → Đóng đăng ký & bốc ngẫu nhiên.
-6. Đăng nhập lại tài khoản đã đăng ký → Kiểm tra kết quả → Mua ngay.
-7. Bấm Mua ngay nhiều lần: nhận lại cùng mã đơn, kho chỉ giảm một lần.
+Trong Swagger, thực hiện theo thứ tự **Login → Join → Admin draw → Ticket → Buy → Stats**:
 
-Khóa admin sinh ngẫu nhiên mỗi lần chạy; không phải mật khẩu tài khoản thật. Server chỉ lắng nghe localhost.
+1. Gọi **Login** với user/device mẫu. Session được Swagger tự lưu để gọi các API cần đăng nhập.
+2. Gọi **Join** để đưa tài khoản vào hàng chờ. Muốn đăng ký nhiều tài khoản, lặp lại Login → Join cho từng tài khoản trước khi bốc suất.
+3. Bấm **Authorize**, nhập Admin key vào `adminAuth`, rồi gọi **Admin draw** sau khi đã đăng ký đủ người muốn tham gia.
+4. Gọi **Ticket** để xem tài khoản có được chọn không.
+5. Nếu được chọn, giữ `ticket=AUTO_TICKET` và gọi **Buy**. Swagger tự dùng vé vừa nhận. Khi thử nhiều tài khoản, đặt `Idempotency-Key` khác nhau cho từng tài khoản; giữ nguyên key khi retry cùng một yêu cầu.
+6. Gọi lại **Buy** để xem kết quả retry và gọi **Stats** để kiểm tra kho.
 
-## 2. Kiểm thử tự động
+Không cần nhập session vào `sessionAuth` thủ công sau khi Login thành công. Swagger UI tải thư viện giao diện từ unpkg.com nên cần Internet; backend demo vẫn chạy trên máy cục bộ.
 
-Chạy `python -m unittest discover -s tests -v` hoặc mở `test.bat`.
+## Cách xử lý giao dịch
 
-- 1.000 yêu cầu mua, tối đa 100 worker chạy đồng thời: 100 đơn, 900 SOLD_OUT, tồn kho 0.
-- 1.000 người đăng ký: chọn đúng 100 tài khoản; đăng ký trùng không tăng xác suất.
-- 100 yêu cầu mua lặp từ cùng một người: chỉ một mã đơn, kho giảm một.
-- Tài khoản thứ ba trên cùng thiết bị bị từ chối; vượt ngưỡng bị 429.
-- Token giả, sửa chữ ký, dùng token người khác bị từ chối.
-- Cố ý làm INSERT thất bại: trừ kho được rollback, kho vẫn 100.
-- Khởi tạo lại service giữ đơn và kho; idempotency key trùng giữa hai người bị từ chối.
-- Restart với kho còn 99: bốc đúng tối đa 99 suất; identity/ticket sai kiểu dữ liệu bị từ chối.
+Khi mua, backend kiểm tra session, vé do server ký, quyền sở hữu vé, thời hạn, idempotency key và giới hạn tần suất. Sau đó SQLite thực hiện transaction:
 
-Test 1.000 yêu cầu **cố ý cho lớp admission cấp quá 100 vé**, để chứng minh database vẫn ngăn overselling độc lập với hàng chờ. Đây là bài test service có database thật, không phải 1.000 HTTP request cùng một thời điểm; không phải benchmark 100.000 người. `TEST_RESULTS.txt` là kết quả thực thi đính kèm.
-
-### Demo HTTP riêng
-
-Dùng database mới: dừng server, xóa `sale.db`, `sale.db-wal`, `sale.db-shm` nếu có (chỉ dữ liệu demo), rồi chạy lại server. Trong terminal thứ hai:
-
-```powershell
-python tests/http_demo.py --admin-key "KEY_IN_TRONG_TERMINAL"
-```
-
-Script đăng ký 100 tài khoản qua HTTP, bốc suất, gửi 100 yêu cầu mua bằng 30 worker, kiểm tra mua lại và token giả. Mỗi lần chạy cần demo mới. Không chạy trên sự kiện đã đóng đăng ký.
-
-## 3. Luồng xử lý và code quan trọng
-
-1. `/api/demo/login`: cấp session demo; user/device là dữ liệu giả lập.
-2. `/api/join`: xác minh session, rate limit theo IP, giới hạn hai tài khoản trên thiết bị, chống đăng ký trùng.
-3. `/api/admin/draw`: admin đóng đăng ký; dùng bộ sinh ngẫu nhiên hệ thống xáo danh sách, chọn tối đa số hàng còn lại trong kho.
-4. `/api/ticket`: trả token HMAC do server ký, chứa user/event/expiry; chỉ người được chọn có vé mua, TTL 10 phút.
-5. `/api/buy`: kiểm tra session + chữ ký + người sở hữu + expiry + quyền được chọn; kiểm tra Idempotency-Key; giới hạn user/device/IP; giới hạn số transaction đồng thời.
-6. Database thực hiện `BEGIN IMMEDIATE`; kiểm tra đơn tồn tại và key trùng; trừ kho có điều kiện; tạo đơn; COMMIT. Lỗi thì ROLLBACK toàn bộ.
+1. Bắt đầu transaction ghi.
+2. Kiểm tra tài khoản hoặc idempotency key đã có đơn chưa.
+3. Trừ kho có điều kiện — chỉ trừ khi còn sản phẩm.
+4. Tạo đơn và commit. Nếu bước ghi lỗi, rollback cả transaction.
 
 ```sql
 UPDATE stock SET remaining = remaining - 1
 WHERE id = 1 AND remaining > 0;
 ```
 
-Chỉ tạo đơn nếu affected rows = 1. `CHECK(remaining >= 0)`, `UNIQUE(user_id)`, `UNIQUE(request_key)` và transaction là các lớp bảo vệ. Không dùng đọc kho rồi ghi lại ở hai thao tác rời. Trong demo này một sự kiện, một sản phẩm, số lượng luôn 1. Client không thể gửi quantity để tăng số lượng.
+Các constraint trong database và transaction là lớp bảo vệ cuối nếu nhiều yêu cầu chạy cùng lúc. Bất biến cần giữ là:
 
-Bất biến: `stock + count(orders) = 100`, stock >= 0, mỗi user tối đa một đơn. Mua lại trả mã đơn cũ kể cả key mới (quy tắc một người một đơn); key dùng bởi người khác trả conflict. Kết quả ORDER_CREATED nghĩa là đơn đã COMMIT, chưa phải đã thanh toán.
+```text
+stock + orders = 100
+```
 
-## 4. API
+Một tài khoản chỉ có tối đa một đơn. Gửi lại yêu cầu mua sẽ nhận lại đơn cũ; `Idempotency-Key` được dùng để nhận diện retry và không được chia sẻ giữa các tài khoản khác nhau.
 
-| Endpoint             | Header / body                                          | Vai trò                      |
-| -------------------- | ------------------------------------------------------ | ----------------------------- |
-| POST /api/demo/login | `{ "user": "bao", "device": "pc-bao" }`              | Session demo                  |
-| POST /api/join       | Authorization: Bearer session                          | Đăng ký hàng chờ         |
-| POST /api/admin/draw | X-Admin-Key                                            | Đóng hàng chờ, bốc suất |
-| POST /api/ticket     | Authorization                                          | Lấy kết quả/token          |
-| POST /api/buy        | Authorization, Idempotency-Key;`{ "ticket": "..." }` | Tạo đơn                    |
-| GET /api/stats       | Không                                                 | Kho, đơn, metric demo       |
+## API chính
 
-## 5. Chống bot và công bằng: điều gì đã làm, điều gì chưa
+| API | Mục đích |
+| --- | --- |
+| `POST /api/demo/login` | Tạo session demo từ user/device giả lập |
+| `POST /api/join` | Đăng ký tham gia hàng chờ |
+| `POST /api/admin/draw` | Đóng đăng ký và bốc ngẫu nhiên người được mua |
+| `POST /api/ticket` | Kiểm tra kết quả và nhận vé mua nếu được chọn |
+| `POST /api/buy` | Tạo đơn với vé mua và `Idempotency-Key` |
+| `GET /api/stats` | Xem tồn kho, số đơn và trạng thái bất biến |
 
-Đã có: rate limit IP/user/device, giới hạn tài khoản theo thiết bị, token server ký, chống dùng token người khác, một người một đơn, random draw trong nhóm đăng ký đã đóng. Tốc độ click trong cửa sổ đăng ký không quyết định thắng.
+Swagger mô tả response thành công và các lỗi liên quan đến từng API, thay vì lặp toàn bộ mã lỗi cho mọi endpoint.
 
-**Không chứng minh phân biệt được người thật và bot.** Login cho tự khai danh tính; device do client khai và có thể giả mạo. Bot tạo nhiều danh tính/thiết bị vẫn tăng cơ hội. Ngưỡng dùng để dễ demo, không phải số tối ưu. Không dùng CAPTCHA thật, fingerprint thật, xác minh số điện thoại hay WAF. Random draw không giải quyết được nhiều tài khoản giả. Không dựa vào tên API bí mật hay client giữ secret để chống bot.
+## Chạy kiểm thử
 
-Bản thật cần tài khoản đã xác minh, CAPTCHA được server kiểm chứng theo rủi ro, WAF, giới hạn đa chiều có lưu trữ dùng chung và cơ chế xử lý người dùng chung IP. Device fingerprint chỉ là tín hiệu. Với fairness, công bố cửa sổ đăng ký, tiêu chí hợp lệ và quy tắc bốc suất; lưu audit draw. Demo chưa có audit và chưa chuyển suất của người trúng bỏ mua.
+Chạy toàn bộ unit test:
 
-## 6. Mở rộng lên 100.000 người
+```powershell
+python -m unittest discover -s tests -v
+```
 
-SQLite + HTTP server chuẩn phục vụ minh họa cục bộ, không dùng triển khai tải này. Database là nguồn dữ liệu chuẩn. PostgreSQL transaction vẫn cần conditional update + unique constraint, không chỉ dựa vào Redis.
+Hoặc mở `test.bat`. Bộ test hiện kiểm tra các tình huống như:
 
-Kiến trúc dự kiến: CDN/WAF → waiting room → admission/rate limit dùng Redis → API → PostgreSQL. Chỉ người có admission hợp lệ mới đến thao tác ghi. Với 100 đơn, có thể ghi trực tiếp bằng pool giới hạn; không bắt buộc thêm Kafka chỉ vì có 100 người thắng.
+- 1.000 yêu cầu mua đồng thời: database chỉ tạo đúng 100 đơn, 900 yêu cầu còn lại nhận `SOLD_OUT`, tồn kho về 0.
+- Retry đồng thời từ cùng một người: chỉ có một đơn và kho chỉ giảm một lần.
+- Đăng ký trùng, giới hạn tài khoản theo thiết bị, giới hạn tần suất và vé giả/vé của người khác.
+- Rollback khi tạo đơn lỗi, xung đột idempotency key và bốc suất theo số hàng còn lại sau khi khởi động lại.
+- Danh sách response được khai báo riêng theo endpoint trong OpenAPI.
 
-Nếu dùng Redis reserve + message queue, phải giải quyết khoảng trống giữa trừ Redis và publish message. Có thể dùng Redis Lua ghi reservation và XADD vào Redis Stream trong cùng script (các key cùng hash slot khi dùng Cluster); worker dùng transaction DB và unique reservation ID; chỉ ACK sau COMMIT, retry không tạo thêm đơn. Redis failover vẫn có thể mất reservation nên DB là chốt cuối. Không trả “mua thành công” chỉ vì reserve được trong Redis. Cần theo dõi trạng thái, đối soát, retry/thu hồi reservation đúng một lần.
+**Lưu ý về test 1.000 yêu cầu:** test này cố ý cấp quyền mua cho 1.000 tài khoản để kiểm tra riêng database như lớp bảo vệ cuối. Đây không phải kết quả của một đợt bốc suất thật (với kho 100 thì chỉ tối đa 100 người được chọn), cũng không phải benchmark 100.000 người hay 1.000 HTTP request gửi qua mạng.
 
-Thanh toán thực tế cần trạng thái PENDING_PAYMENT/PAID/EXPIRED, thời hạn giữ suất, webhook idempotent, trả kho đúng một lần và xử lý payment đến muộn. Demo chỉ tạo đơn, chưa tích hợp payment hay trả kho.
+Để chạy thêm kịch bản HTTP riêng:
 
-## 7. Giới hạn vận hành
+```powershell
+python tests/http_demo.py --admin-key "ADMIN_KEY_IN_TRONG_TERMINAL"
+```
 
-Orders và stock lưu bền trong SQLite. Session, hàng chờ, selection, rate limit nằm trong RAM một process, mất khi restart; các token cũ hết hiệu lực vì secret đổi. Khởi động lại không reset kho. Nhiều instance cần lưu trạng thái dùng chung. Demo không có cleanup hàng chờ/session, chính sách dữ liệu hoặc bảo vệ trước traffic lớn. Stats đọc tồn kho và số đơn trong cùng một snapshot SQLite; trạng thái hàng chờ vẫn chỉ thuộc process hiện tại. Không để demo này ra Internet.
+Script này gửi các request qua HTTP và cần server đang chạy. Chạy trên trạng thái demo mới, trước khi hàng chờ đã được đóng.
 
-## 8. Giải thích khi trình bày
+## Phạm vi và giới hạn
 
-“Em dùng cập nhật tồn kho có điều kiện và tạo đơn trong cùng transaction, kèm constraint và idempotency để không bán vượt kho hay tạo đơn trùng. Demo 1.000 yêu cầu với 100 worker cho đúng 100 đơn. Để giảm lợi thế bot click nhanh, em cho đăng ký vào hàng chờ rồi bốc ngẫu nhiên tối đa 100 người. Rate limit và token ký là lớp bổ sung; bản thật cần xác minh danh tính và chống bot tại server.”
+- Tồn kho và đơn hàng được lưu trong `sale.db`; khởi động lại server **không** tự đặt lại kho.
+- Session, hàng chờ, danh sách được chọn, rate limit và khóa ký session nằm trong bộ nhớ của một process. Chúng mất khi server dừng; session/vé cũ không còn hợp lệ sau khi khởi động lại.
+- User và device do người demo tự nhập, không xác minh danh tính và có thể giả mạo. Giới hạn rate/device chỉ minh họa, không chứng minh có thể phân biệt người thật với bot.
+- Bốc suất ngẫu nhiên giảm lợi thế của việc click nhanh trong nhóm đã đăng ký, nhưng chưa có CAPTCHA, xác minh tài khoản, audit kết quả bốc suất hay quy trình xử lý người trúng không mua.
+- `ORDER_CREATED` chỉ có nghĩa là đơn đã được ghi thành công; demo chưa tích hợp thanh toán, giữ chỗ có thời hạn hay hoàn kho.
+- Trạng thái RAM chỉ dùng chung trong một process. SQLite và HTTP server tích hợp phù hợp cho demo cục bộ, không phải cấu hình triển khai chịu tải lớn hoặc chạy nhiều instance.
+
+Muốn bắt đầu lại với kho 100, hãy dừng server trước. Chỉ xóa các file dữ liệu demo `sale.db`, `sale.db-wal` và `sale.db-shm` (nếu có) khi bạn chắc chắn không cần giữ đơn hàng hiện tại, rồi khởi động server lại.
+
+## Lời trình bày ngắn
+
+> “Demo mô phỏng flash sale 100 sản phẩm. Người dùng đăng ký trước rồi hệ thống bốc ngẫu nhiên tối đa số suất còn hàng, tránh để tốc độ click quyết định kết quả. Khi mua, backend xác thực vé và thực hiện trừ kho có điều kiện cùng tạo đơn trong một transaction; constraint và idempotency giúp ngăn bán vượt kho và tạo đơn trùng. Bộ test chạy 1.000 yêu cầu mua đồng thời cho thấy database chỉ ghi tối đa 100 đơn. Đây là demo cục bộ, chưa xác minh danh tính, tích hợp thanh toán hay sẵn sàng cho production.”
